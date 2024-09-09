@@ -203,3 +203,69 @@ plt.show()
 ```
 self.anomaly_types = anomaly_types
 ```
+
+
+```
+# %%
+import sys
+import os
+sys.path.append("models")
+
+import timm  # noqa
+import torchvision.models as models  # noqa
+import patchcore.vision_transformer as vits
+import patchcore.datasets.mvtec as mvtec
+import torch
+from torchsummary import summary
+
+import matplotlib.pyplot as plt
+
+
+# %%
+url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+patch_size = 8
+
+device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+# build model
+# vit_tiny, vit_small, vit_base, patch_size=8, 16
+model = vits.__dict__['vit_base'](patch_size=patch_size, num_classes=0)
+for p in model.parameters():
+    p.requires_grad = False
+model.eval()
+model.to(device)
+
+state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+model.load_state_dict(state_dict, strict=True)
+
+# %%
+path = 'data/mvtec_ad'
+category = "bottle"
+dataset = mvtec.MVTecDataset(source=path, split=mvtec.DatasetSplit.TEST,
+                                    classname=category, resize=256, imagesize=224)
+
+index = 63
+
+input = dataset[index]["image"].unsqueeze(0)
+attentions = model.get_last_selfattention(input.to(device))
+
+nh = attentions.shape[1]
+attentions = attentions[0, :, 0, 1:].reshape(nh, -1)
+
+attentions = attentions.reshape(nh, 28, 28)
+
+attention_map = attentions[11].cpu().numpy()
+
+fig, axs = plt.subplots(1,2)
+axs[0].imshow(attention_map)
+
+mean = torch.tensor([0.485, 0.456, 0.406])
+std = torch.tensor([0.229, 0.224, 0.225])
+def denormalize_image(tensor, mean, std):
+    mean = mean.view(1, 3, 1, 1)
+    std = std.view(1, 3, 1, 1)
+    tensor = tensor * std + mean
+    return tensor.permute(0,2,3,1)[0]
+axs[1].imshow(denormalize_image(input, mean, std))
+
+fig.show()
+```
